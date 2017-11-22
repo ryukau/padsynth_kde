@@ -13,6 +13,18 @@
 - [ランダムな合成音](./render_random)
 
 # 使い方
+## padsynth.py
+乱数でPADsynthのパラメータを生成して音を合成します。
+
+以下のコマンドで実行します。
+
+```
+python3 padsynth.py
+```
+
+## sound\_feature.py
+sound\_feature.pyはKDEでサンプルから抽出した特徴に基づいてPADsynthのパラメータを生成して音を合成します。
+
 以下のpython3ライブラリが必要です。
 
 - [SciPy](https://docs.scipy.org/doc/scipy/reference/)
@@ -34,7 +46,7 @@ sudo -u postgres -i createuser user_name
 sudo -u postgres -i createdb --owner=user_name db_name
 ```
 
-sound_feature.py と同じディレクトリに sample というディレクトリを作成して、その中にサンプルを配置してください。サンプルの形式はPySoundFileで読み込めるものに限られます。
+sound\_feature.py と同じディレクトリに sample というディレクトリを作成して、その中にサンプルを配置してください。サンプルの形式はPySoundFileで読み込めるものに限られます。
 
 ```
 kde_padsynth/
