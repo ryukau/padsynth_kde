@@ -66,19 +66,19 @@ python3 sound_feature.py
 ```
 
 # パラメータ
-- SoundFeature.__init__
+- SoundFeature.\_\_init\_\_
   - interval
   - cutoff
-  - spectrum_length
-  - merging_range 未使用
-- make_cdf
+  - spectrum\_length
+  - merging\_range 未使用
+- make\_cdf
   - size
-  - kernel_width
+  - kernel\_width
 - padsynth
-  - band_width
-  - random_phase
+  - band\_width
+  - random\_phase
 - resynth
-  - num_render
+  - num\_render
   - samplerate
 
 # ライセンス
