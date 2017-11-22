@@ -59,7 +59,6 @@ def padsynth(samplerate, frequencies, band_width=10, random_phase=2):
                 gain * profile(index / len(table) - freq_i, band_width_i),
                 phase + random_phase * random.random() * math.pi)
 
-    # table を複素数に変換。
     table[0] = 0 * 1j  # 直流を除去。
 
     sound_ifft = ifft(table, planner_effort='FFTW_ESTIMATE', threads=1)
@@ -89,14 +88,20 @@ PADsynthのやっていることは加算合成なので、周波数、音量、
 
 平坦にしたサンプルをフーリエ変換して音量 (パワー) と位相を得ます。周波数が100Hzより低い成分は捨てています。
 
+- パワースペクトラム
 [[./fig/power_spectrum.png]]
+
+- 位相
 [[./fig/fig_phase.png]]
 
 計算時間を減らしたいのでデータの数を減らします。
 
 周波数領域のデータは (周波数, 音量, 位相) という組の集まりとして扱うことができます。音量についてソートして大きいほうから、例えば1024組のデータを取り出します。
 
+- 数を減らしたパワースペクトラム
 [[./fig/reduced_spectrum.png]]
+
+- 位相
 [[./fig/fig_reduced_phase.png]]
 
 ** KDE
@@ -163,7 +168,7 @@ generated = [
 
 結果として得られた合成音です。
 
-- [[./render][合成音]]
+- [[../render][合成音]]
 
 合成音のファイル名は <種類>_<Pack>_<番号>.wav となっています。以下は種類の意味です。
 
@@ -186,7 +191,7 @@ generated = [(freq[i], gain[i], phase[i]) for i in range(size)]
 
 出力です。
 
-- [[./render_random][乱数による合成音]]
+- [[../render_random][乱数による合成音]]
 
 * 分かったこと
 シンバルの「カーン」というトーンの部分を加算合成するとき、位相はランダムにしたほうがいいことがわかりました。
@@ -206,5 +211,7 @@ generated = [(freq[i], gain[i], phase[i]) for i in range(size)]
 
 * 参考文献
 - [[http://zynaddsubfx.sourceforge.net/doc/PADsynth/PADsynth.htm][PADsynth algorithm]]
-- [[https://ccrma.stanford.edu/~jos/swgt/][A Basic Introduction to Digital Waveguide Synthesis (for the Technically Inclined)]]
 - [[https://en.wikipedia.org/wiki/Kernel_density_estimation][Kernel density estimation - Wikipedia]]
+- [[http://gamma.cs.unc.edu/AUDIO_MATERIAL/][Example-Guided Physically Based Modal Sound Synthesis]]
+- [[https://ccrma.stanford.edu/~jos/swgt/][A Basic Introduction to Digital Waveguide Synthesis (for the Technically Inclined)]]
+- [[https://www.youtube.com/watch?v=DesLEalHTtc][New Hi-hat Model - YouTube]]
