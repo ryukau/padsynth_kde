@@ -1,0 +1,210 @@
+* ライドシンバル合成の試み
+ZynAddSubFXのDrums -> Natural Drum KitのハイハットがSUBsynthで合成されているのを見てシンバルを加算合成できる気がしました。特にライドシンバルは「カーン」というトーンの成分が多めに聞こえるので加算合成しやすそうに思えました。
+
+始めは周波数成分を手作業で入力するつもりでしたが、無理そうだったのでKernel Density Estimationを応用してある程度ランダムに合成することにしました。
+
+結果はあまり良くないものでしたが、シンバルの合成に関する知見が得られました。
+
+* PADsynth
+加算合成に[[http://zynaddsubfx.sourceforge.net/doc/PADsynth/PADsynth.htm][PADsynth]]を使います。PADsynthは長さ2^18前後のバッファに周波数分布のデータを書き込んで逆フーリエ変換することで音を作ります。
+
+以下はPython3での実装です。位相を扱えるように変更しています。
+
+#+BEGIN_SRC python
+import cmath
+import math
+import numpy
+import random
+
+from pyfftw.interfaces.numpy_fft import fft, ifft
+
+
+def profile(fi, bwi):
+    x = fi / bwi
+    return math.exp(-x * x) / bwi
+
+
+def normalize(sound, amp=1.0):
+    amp /= max([max(sound), -min(sound)])
+    return [value * amp for value in sound]
+
+
+def padsynth(samplerate, frequencies, band_width=10, random_phase=2):
+    """
+    PadSynth from ZynAddSubFX
+    http://zynaddsubfx.sourceforge.net/doc/PADsynth/PADsynth.htm
+
+    frequencies = [(freq, gain, phase), ...]
+
+    profile_size_half の定数6は以下を参照。値を大きくすると遅くなるかわりに精度が上がる。
+    https://en.wikipedia.org/wiki/Normal_distribution#Standard_deviation_and_coverage
+    """
+    table = numpy.zeros(2**16, dtype=numpy.complex)
+
+    for freq, gain, phase in frequencies:
+        band_width_hz = (math.pow(2, band_width / 1200) - 1.0) * freq
+        band_width_i = band_width_hz / (2.0 * samplerate)
+
+        sigma = math.sqrt(math.pow(band_width_i, 2.0) / (2.0 * math.pi))
+        profile_size_half = max(int(6 * len(table) * sigma), 1)
+
+        freq_i = freq / samplerate
+
+        center = int(freq_i * len(table))
+        start = max(center - profile_size_half, 0)
+        end = min(center + profile_size_half, len(table))
+
+        for index in range(start, end):
+            table[index] += cmath.rect(
+                gain * profile(index / len(table) - freq_i, band_width_i),
+                phase + random_phase * random.random() * math.pi)
+
+    # table を複素数に変換。
+    table[0] = 0 * 1j  # 直流を除去。
+
+    sound_ifft = ifft(table, planner_effort='FFTW_ESTIMATE', threads=1)
+    sound_flat = normalize(sound_ifft.real)
+
+    return sound_flat
+#+END_SRC
+
+* Kernel Density Estimation
+PADsynthのやっていることは加算合成なので、周波数、音量、位相のデータを上手く生成できればバッファ長以下のどんな音でも合成できます。今回は[[https://en.wikipedia.org/wiki/Kernel_density_estimation][Kernel density estimation]] (KDE) という手法を用いてサンプル集合と似たようなデータの生成を試しました。
+
+以下は作成したシステムの大まかな処理の流れです。
+
+1. サンプルを入力して特徴抽出。
+2. 抽出した特徴からKDEで確率密度関数を作成。
+3. 確率密度関数からPADsynthに渡すパラメータを生成。
+4. パラメータをPADsynthに渡して音を合成。
+
+** 特徴抽出
+例として以下のサンプルから特徴を抽出します。
+
+[[./fig/fig_sample.png]]
+
+サンプルの音量を平坦にします。
+
+[[./fig/fig_flat.png]]
+
+平坦にしたサンプルをフーリエ変換して音量 (パワー) と位相を得ます。周波数が100Hzより低い成分は捨てています。
+
+[[./fig/power_spectrum.png]]
+[[./fig/fig_phase.png]]
+
+計算時間を減らしたいのでデータの数を減らします。
+
+周波数領域のデータは (周波数, 音量, 位相) という組の集まりとして扱うことができます。音量についてソートして大きいほうから、例えば1024組のデータを取り出します。
+
+[[./fig/reduced_spectrum.png]]
+[[./fig/fig_reduced_phase.png]]
+
+** KDE
+各サンプルの音量がn番目に大きい組を取り出して、周波数、音量、位相それぞれでKDEを行って確率密度関数を作ります。
+
+コードにすると以下のようになります。
+
+#+BEGIN_SRC python
+# python3
+data = [
+    [(freq, gain, phase), (freq, gain, phase), ...]
+    [(freq, gain, phase), (freq, gain, phase), ...]
+    [(freq, gain, phase), (freq, gain, phase), ...]
+    ...
+]
+
+pf = [] # probability function
+for i in range(len(data[0])):
+    pf.append((
+        kde([d[i][0] for d in data]), # freq
+        kde([d[i][1] for d in data]), # gain
+        kde([d[i][2] for d in data]), # phase
+    ))
+#+END_SRC
+
+データを生成する時は以下のようなコードになります。
+
+#+BEGIN_SRC python
+generated = [
+    (
+        p[0].random(),  # freq
+        p[1].random(),  # gain
+        p[2].random(),  # phase
+    ) for p in pf
+]
+#+END_SRC
+
+* 実験と結果
+実験で使うサンプルは[[https://freesound.org/][freesound.org]]から取得しました。
+
+実験で使ったシンバル系のPackです。
+
+- [[https://freesound.org/people/-zin-/packs/2197/][Freesound.org - pack: Cymbals by -zin-]]
+- [[https://freesound.org/people/Robinhood76/packs/3940/][Freesound.org - pack: Sabian percussion cymbals set by Robinhood76]]
+- [[https://freesound.org/people/CBeeching/packs/7337/][Freesound.org - pack: Mixed Cymbals by CBeeching]]
+- [[https://freesound.org/people/quartertone/packs/8491/][Freesound.org - pack: RideCymbal-13inZildjianZCustom by quartertone]]
+- [[https://freesound.org/people/quartertone/packs/8492/][Freesound.org - pack: RideCymbal-20inZildjianScimitarBronze by quartertone]]
+- [[https://freesound.org/people/britishpirate93/packs/10055/][Freesound.org - pack: Anatolian Cymbals Kit by britishpirate93]]
+- [[https://freesound.org/people/Veiler/packs/13346/][Freesound.org - pack: rides - bells by Veiler]]
+- [[https://freesound.org/people/soundjoao/packs/18539/][Freesound.org - pack: Special Cymbals by soundjoao]]
+
+シンバルでないPackです。freesound.orgのトップページからSounds -> More Sounds -> Give me a random sound!とたどってランダムに取得しました。
+
+- [[https://freesound.org/people/Zabuhailo/packs/9223/][Freesound.org - pack: Water cooler bottle by Zabuhailo]]
+- [[https://freesound.org/people/quartertone/packs/9034/][Freesound.org - pack: Snaredrum-13x03inchPearl-HighPitch-multisampled by quartertone]]
+- [[https://freesound.org/people/harri/packs/881/][Freesound.org - pack: harri_bass_loops_1 by harri]]
+- [[https://freesound.org/people/adcbicycle/packs/754/][Freesound.org - pack: Slide sounds by adcbicycle]]
+- [[https://freesound.org/people/Nosebleed%20Cinema/packs/5938/][Freesound.org - pack: Harvesting Feedback by Nosebleed Cinema]]
+- [[https://freesound.org/people/irrlicht/packs/2688/][Freesound.org - pack: Atari Talks by irrlicht]]
+- [[https://freesound.org/people/Fynixx/packs/22578/][Freesound.org - pack: Sci-Fi EDM Vocals by Fynixx]]
+- [[https://freesound.org/people/Terry93D/packs/19378/][Freesound.org - pack: FM Synth - Strings Ensemble by Terry93D]]
+- [[https://freesound.org/people/tworc/packs/18913/][Freesound.org - pack: 33_efekty by tworc]]
+- [[https://freesound.org/people/johnnypanic/packs/15283/][Freesound.org - pack: E strings by johnnypanic]]
+
+結果として得られた合成音です。
+
+- [[./render][合成音]]
+
+合成音のファイル名は <種類>_<Pack>_<番号>.wav となっています。以下は種類の意味です。
+
+- flat: 周波数と音量のデータを使用。位相はランダム。
+- flat_phase: 周波数、音量、位相のデータを使用。
+- out: flatに減衰のみのエンベロープを音量に適用。
+
+outのエンベロープはただの指数関数です。パラメータは音を平らにするときに得られた値からscipyのcurve_fitで推定しました。
+
+** 乱数
+位相がランダムの場合、入力に関係なく似たような音になる気がしたので周波数と音量もランダム生成してPADsynthに入力しました。
+
+#+BEGIN_SRC python
+size = 1024
+freq = numpy.random.uniform(100, 12000, size)
+gain = numpy.random.uniform(1e-5, 1, size)
+phase = numpy.random.uniform(0, 2.0 * numpy.pi, size)
+generated = [(freq[i], gain[i], phase[i]) for i in range(size)]
+#+END_SRC
+
+出力です。
+
+- [[./render_random][乱数による合成音]]
+
+* 分かったこと
+シンバルの「カーン」というトーンの部分を加算合成するとき、位相はランダムにしたほうがいいことがわかりました。
+
+* 考察
+後知恵としてはPADsynthだけでのシンバルの合成は難しいと思います。
+
+作った後に調べてみるとModal Sound Synthesisという手法を用いた研究を見つけました。各周波数成分の減衰を考慮しているようです。
+
+- [[http://gamma.cs.unc.edu/AUDIO_MATERIAL/][Example-Guided Physically Based Modal Sound Synthesis]]
+
+シンバルの音は宙吊りにされた金属とスティックの衝突音です。従って、「カチッ」という衝突のインパルスを入力すると「シャー」「カーン」といったシンバルの音が出てくるシステムと捉えることができます。
+
+このアプローチでは[[https://ccrma.stanford.edu/~jos/swgt/][Digital Waveguide Synthesis]]が応用できます。"digital waveguide hihat" でグーグル検索したら既に作っている方もいました。
+
+- [[https://www.youtube.com/watch?v=DesLEalHTtc][New Hi-hat Model - YouTube]]
+
+* 参考文献
+- [[http://zynaddsubfx.sourceforge.net/doc/PADsynth/PADsynth.htm][PADsynth algorithm]]
+- [[https://ccrma.stanford.edu/~jos/swgt/][A Basic Introduction to Digital Waveguide Synthesis (for the Technically Inclined)]]
+- [[https://en.wikipedia.org/wiki/Kernel_density_estimation][Kernel density estimation - Wikipedia]]
